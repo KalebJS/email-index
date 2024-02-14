@@ -2,11 +2,13 @@ from collections import defaultdict
 
 import pandas as pd
 from django.http import JsonResponse
+from rest_framework import status
+from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from rfp_api.models import Answer, Organization, Question
+from rfp_api.models import Email
 
 from .milvus_index import MilvusConnectionSecrets, MilvusService
+from .html_utils import html_to_sentences
 
 credentials = MilvusConnectionSecrets(user="username", password="password", host="standalone")
 index = MilvusService(credentials, reset=True)
@@ -15,44 +17,40 @@ index = MilvusService(credentials, reset=True)
 class Inference(APIView):
     def post(self, request) -> JsonResponse:
         payload = request.data
-        if not (question := payload.get("question")):
-            return JsonResponse({"res": "No question found in the payload"})
+        if not (email := payload.get("query")):
+            return JsonResponse({"error": "query is required"}, status=400)
 
         return_count = int(payload.get("count", 2))
         threshold = float(payload.get("threshold", 0.4))
 
-        query_results = index.search(question, k=10, threshold=threshold)
+        query_results = index.search(email, k=10, threshold=threshold)
 
         # get nearest neighbor
         classes = defaultdict(int)
         for item in query_results:
-            question = Question.objects.get(id=item.question_id)
-            classes[question.answer.id] += item.score
+            classes[item.email_id] += item.score
 
         # create list of tuples (score, class) and sort it
         sorted_classes = sorted(classes.items(), key=lambda x: x[1], reverse=True)
-        question_ids = sorted_classes[:return_count]
+        email_ids = sorted_classes[:return_count]
 
         answers = []
-        for question_id, score in question_ids:
-            answer = Answer.objects.get(id=question_id)
-            question = Question.objects.get(answer=answer)
-            answers.append({"similar_question": question.text, "answer": answer.text, "score": score})
+        for email_id, score in email_ids:
+            email = Email.objects.get(id=email_id)
+            answers.append({"subject": email.subject, "similar_question": email.html, "score": score})
 
         return JsonResponse(answers, safe=False)
 
 
-class Init(APIView):
-    def get(self, request) -> JsonResponse:
-        df = pd.read_csv("qa-pairs.csv")
-        df["text"] = df["question"]
+class EmailCreate(APIView):
+    def post(self, request, format=None):
+        try:
+            email = Email.objects.create(**request.data)
+        except Exception as e:
+            return Response(str(e), status=status.HTTP_400_BAD_REQUEST)
+
         rows = []
-        org = Organization.objects.create(name="default")
-        for row in df.to_dict(orient="records"):
-            answer = Answer.objects.create(text=row["answer"], owner_organization=org)
-            question = Question.objects.create(text=row["text"], answer=answer)
-            row["id"] = question.id
-            rows.append(row)
-        df = pd.DataFrame(rows)
-        index.insert(df)
-        return JsonResponse({"res": "API is running"})
+        for sentence in html_to_sentences(email.html):
+            rows.append({"text": sentence, "email_id": email.id})
+        index.insert(pd.DataFrame(rows))
+        return Response({"id": email.id}, status=status.HTTP_201_CREATED)

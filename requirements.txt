@@ -7,3 +7,6 @@ pymilvus==2.3.6
 sentence-transformers
 cffi
 retry
+pydantic
+beautifulsoup4
+nltk
