@@ -11,8 +11,7 @@ from .milvus_index import MilvusConnectionSecrets, MilvusService
 from .html_utils import html_to_sentences
 
 credentials = MilvusConnectionSecrets(user="username", password="password", host="standalone")
-index = MilvusService(credentials, reset=True)
-
+index = MilvusService(credentials)
 
 class Inference(APIView):
     def post(self, request) -> JsonResponse:
@@ -37,7 +36,7 @@ class Inference(APIView):
         answers = []
         for email_id, score in email_ids:
             email = Email.objects.get(id=email_id)
-            answers.append({"subject": email.subject, "similar_question": email.html, "score": score})
+            answers.append({"subject": email.subject, "similar_file": email.filename, "score": score})
 
         return JsonResponse(answers, safe=False)
 
@@ -52,5 +51,6 @@ class EmailCreate(APIView):
         rows = []
         for sentence in html_to_sentences(email.html):
             rows.append({"text": sentence, "email_id": email.id})
+        rows.append({"text": email.subject, "email_id": email.id})
         index.insert(pd.DataFrame(rows))
         return Response({"id": email.id}, status=status.HTTP_201_CREATED)

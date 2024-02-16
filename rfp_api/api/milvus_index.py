@@ -112,15 +112,3 @@ class MilvusService:
 
     def __len__(self) -> int:
         return self.__sizeof__()
-
-
-if __name__ == "__main__":
-    creds = MilvusConnectionSecrets("username", "password")
-    index = MilvusService(creds, reset=True)
-
-    data = {"email_id": [1, 2, 3], "text": ["hello", "world", "how are you"]}
-    df = pd.DataFrame(data)
-
-    index.insert(df)
-
-    print(index.search("hi"))
